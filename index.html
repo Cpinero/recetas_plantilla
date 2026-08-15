@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Iconos Lucide -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="bg-amber-50 min-h-screen text-slate-800 flex flex-col font-sans">
 
@@ -23,9 +25,21 @@
                            class="w-full pl-9 pr-4 py-2 rounded-xl border-none text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-300 text-sm shadow-inner">
                     <i data-lucide="search" class="absolute left-2.5 top-2.5 text-gray-400 w-4 h-4"></i>
                 </div>
-                <button onclick="openFormModal()" class="bg-orange-800 hover:bg-orange-900 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-1 shadow transition shrink-0">
+                
+                <!-- Botón Nueva Receta (requiere login) -->
+                <button id="btnNewRecipe" onclick="openFormModal()" class="bg-orange-800 hover:bg-orange-900 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-1 shadow transition shrink-0">
                     <i data-lucide="plus" class="w-4 h-4"></i> Nueva
                 </button>
+
+                <!-- Área de Usuario / Autenticación -->
+                <div id="authContainer" class="flex items-center gap-2 shrink-0">
+                    <button id="btnLogin" onclick="openModal('authModal')" class="bg-white/20 hover:bg-white/30 text-white px-3 py-2 rounded-xl text-sm font-medium transition">
+                        Iniciar Sesión
+                    </button>
+                    <button id="btnLogout" onclick="handleLogout()" class="hidden bg-red-700 hover:bg-red-800 text-white px-3 py-2 rounded-xl text-sm font-medium transition">
+                        Salir
+                    </button>
+                </div>
             </div>
         </div>
     </header>
@@ -38,8 +52,14 @@
             <!-- Botones de categoría generados dinámicamente -->
         </div>
 
+        <!-- Indicador de Carga -->
+        <div id="loadingState" class="text-center py-16 text-orange-600">
+            <i data-lucide="loader-2" class="w-10 h-10 mx-auto animate-spin mb-2"></i>
+            <p>Cargando recetas de Supabase...</p>
+        </div>
+
         <!-- Grid de Recetas -->
-        <div id="recipeGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div id="recipeGrid" class="hidden grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             <!-- Las tarjetas se generan dinámicamente -->
         </div>
 
@@ -54,9 +74,15 @@
     <div id="viewModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50 backdrop-blur-sm">
         <div class="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl p-6 relative flex flex-col justify-between">
             <div>
-                <button onclick="closeModal('viewModal')" class="absolute top-4 right-4 text-gray-400 hover:text-slate-700 bg-gray-100 p-1.5 rounded-full">
+                <button onclick="closeModal('viewModal')" class="absolute top-4 right-4 text-gray-400 hover:text-slate-700 bg-gray-100 p-1.5 rounded-full z-10">
                     <i data-lucide="x" class="w-5 h-5"></i>
                 </button>
+                
+                <!-- Vista previa de imagen -->
+                <div id="modalImageContainer" class="hidden -mx-6 -mt-6 mb-4 overflow-hidden rounded-t-2xl max-h-56">
+                    <img id="modalImage" src="" alt="Receta" class="w-full h-full object-cover">
+                </div>
+
                 <h2 id="modalTitle" class="text-2xl font-bold text-orange-600 pr-8 mb-2"></h2>
                 <div id="modalCategory" class="inline-block bg-orange-100 text-orange-800 text-xs px-2.5 py-1 rounded-full font-semibold mb-4"></div>
                 
@@ -76,7 +102,7 @@
             </div>
 
             <!-- Acciones (Editar y Eliminar) -->
-            <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
+            <div id="modalActions" class="flex justify-end gap-2 pt-4 border-t border-slate-100">
                 <button id="btnEdit" class="bg-amber-100 hover:bg-amber-200 text-amber-800 px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
                     <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Editar
                 </button>
@@ -117,6 +143,12 @@
                     <input type="text" id="recipeCustomCategory" placeholder="Escribe la nueva categoría" class="hidden mt-2 w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none">
                 </div>
 
+                <!-- Campo de Imagen -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Imagen de la Receta (Opcional)</label>
+                    <input type="file" id="recipeImage" accept="image/*" class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100">
+                </div>
+
                 <div>
                     <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Ingredientes</label>
                     <textarea id="recipeIngredients" rows="3" placeholder="Un ingrediente por línea" required class="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none"></textarea>
@@ -125,34 +157,262 @@
                     <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Instrucciones</label>
                     <textarea id="recipeInstructions" rows="4" placeholder="Paso a paso..." required class="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none"></textarea>
                 </div>
-                <button type="submit" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-medium py-2.5 rounded-xl shadow transition">
+                <button type="submit" id="btnSaveSubmit" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-medium py-2.5 rounded-xl shadow transition flex justify-center items-center gap-2">
                     Guardar Receta
                 </button>
             </form>
         </div>
     </div>
 
+    <!-- Modal de Autenticación (Login/Registro) -->
+    <div id="authModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl max-w-sm w-full shadow-2xl p-6 relative">
+            <button onclick="closeModal('authModal')" class="absolute top-4 right-4 text-gray-400 hover:text-slate-700">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+            <h2 id="authTitle" class="text-xl font-bold text-slate-800 mb-4">Iniciar Sesión</h2>
+            
+            <form onsubmit="handleAuth(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Correo Electrónico</label>
+                    <input type="email" id="authEmail" required class="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Contraseña</label>
+                    <input type="password" id="authPassword" required class="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none">
+                </div>
+                
+                <button type="submit" id="btnAuthSubmit" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-medium py-2.5 rounded-xl shadow transition">
+                    Ingresar
+                </button>
+
+                <p class="text-xs text-center text-slate-500 mt-2">
+                    <span id="authToggleText">¿No tienes cuenta?</span>
+                    <button type="button" onclick="toggleAuthMode()" id="authToggleBtn" class="text-orange-600 font-bold hover:underline">Regístrate</button>
+                </p>
+            </form>
+        </div>
+    </div>
+
     <script>
+        // ==========================================
+        // CONFIGURACIÓN DE SUPABASE
+        // Reemplaza los siguientes valores con tus credenciales
+        // ==========================================
+        const SUPABASE_URL = 'https://dnbdtqyqtvjoqjjipvhv.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_C5cF9IarEaMRNmb0KZEq4Q_7zYas3Ll';
+
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // Variables de Estado
+        let recipes = [];
         let selectedCategory = 'Todas';
+        let currentUser = null;
+        let isSignUpMode = false;
 
-        let recipes = JSON.parse(localStorage.getItem('my_recipes')) || [
-            {
-                id: 1,
-                title: "Cheesecake de Maracuyá",
-                category: "Postres",
-                ingredients: "- 200g de galletas de vainilla\n- 100g de mantequilla derretida\n- 400g de queso crema\n- 1 lata de leche condensada\n- 1/2 taza de pulpa de maracuyá",
-                instructions: "1. Tritura las galletas y mézclalas con la mantequilla. Presiona en el fondo de un molde.\n2. Bate el queso crema con la leche condensada hasta obtener una mezcla suave.\n3. Añade la pulpa de maracuyá y vierte sobre la base de galleta.\n4. Refrigera por al menos 4 horas antes de servir."
-            }
-        ];
-
-        document.addEventListener('DOMContentLoaded', () => {
-            updateCategoryFilters();
-            filterRecipes();
+        // Inicialización
+        document.addEventListener('DOMContentLoaded', async () => {
             lucide.createIcons();
+            await checkAuthStatus();
+            await fetchRecipes();
         });
 
+        // ==========================================
+        // GESTIÓN DE AUTENTICACIÓN
+        // ==========================================
+        async function checkAuthStatus() {
+            const { data: { user } } = await _supabase.auth.getUser();
+            currentUser = user;
+            updateAuthUI();
+
+            _supabase.auth.onAuthStateChange((event, session) => {
+                currentUser = session?.user || null;
+                updateAuthUI();
+                fetchRecipes();
+            });
+        }
+
+        function updateAuthUI() {
+            const btnLogin = document.getElementById('btnLogin');
+            const btnLogout = document.getElementById('btnLogout');
+
+            if (currentUser) {
+                btnLogin.classList.add('hidden');
+                btnLogout.classList.remove('hidden');
+            } else {
+                btnLogin.classList.remove('hidden');
+                btnLogout.classList.add('hidden');
+            }
+        }
+
+        function toggleAuthMode() {
+            isSignUpMode = !isSignUpMode;
+            document.getElementById('authTitle').textContent = isSignUpMode ? 'Crear Cuenta' : 'Iniciar Sesión';
+            document.getElementById('btnAuthSubmit').textContent = isSignUpMode ? 'Registrarse' : 'Ingresar';
+            document.getElementById('authToggleText').textContent = isSignUpMode ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?';
+            document.getElementById('authToggleBtn').textContent = isSignUpMode ? 'Inicia Sesión' : 'Regístrate';
+        }
+
+        async function handleAuth(event) {
+            event.preventDefault();
+            const email = document.getElementById('authEmail').value;
+            const password = document.getElementById('authPassword').value;
+
+            try {
+                if (isSignUpMode) {
+                    const { error } = await _supabase.auth.signUp({ email, password });
+                    if (error) throw error;
+                    alert('Registro exitoso. Revisa tu correo si activaste confirmación por email.');
+                } else {
+                    const { error } = await _supabase.auth.signInWithPassword({ email, password });
+                    if (error) throw error;
+                }
+                closeModal('authModal');
+            } catch (error) {
+                alert('Error de autenticación: ' + error.message);
+            }
+        }
+
+        async function handleLogout() {
+            await _supabase.auth.signOut();
+            alert('Sesión cerrada');
+        }
+
+        // ==========================================
+        // OPERACIONES CRUD RECETAS
+        // ==========================================
+        async function fetchRecipes() {
+            document.getElementById('loadingState').classList.remove('hidden');
+            document.getElementById('recipeGrid').classList.add('hidden');
+
+            try {
+                // Al estar la política RLS en (true), esto traerá todas las recetas
+                // independientemente de si currentUser es null o no
+                const { data, error } = await _supabase
+                    .from('recipes')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+                recipes = data || [];
+                
+                updateCategoryFilters();
+                filterRecipes();
+            } catch (error) {
+                console.error('Error al cargar recetas:', error.message);
+            } finally {
+                document.getElementById('loadingState').classList.add('hidden');
+                document.getElementById('recipeGrid').classList.remove('hidden');
+            }
+        }
+
+        async function saveRecipe(event) {
+            event.preventDefault();
+
+            if (!currentUser) {
+                alert('Debes iniciar sesión para guardar recetas.');
+                openModal('authModal');
+                return;
+            }
+
+            const btnSubmit = document.getElementById('btnSaveSubmit');
+            btnSubmit.disabled = true;
+            btnSubmit.textContent = 'Guardando...';
+
+            const editingId = document.getElementById('editingId').value;
+            const select = document.getElementById('recipeCategorySelect');
+            const customInput = document.getElementById('recipeCustomCategory');
+            const imageInput = document.getElementById('recipeImage');
+            
+            const finalCategory = select.value === 'custom' ? customInput.value.trim() : select.value;
+            let imageUrl = null;
+
+            try {
+                // Subir Imagen si fue seleccionada
+                if (imageInput.files.length > 0) {
+                    const file = imageInput.files[0];
+                    const fileExt = file.name.split('.').pop();
+                    const fileName = `${currentUser.id}/${Date.now()}.${fileExt}`;
+
+                    const { error: uploadError } = await _supabase.storage
+                        .from('recipe-images')
+                        .upload(fileName, file);
+
+                    if (uploadError) throw uploadError;
+
+                    const { data: urlData } = _supabase.storage
+                        .from('recipe-images')
+                        .getPublicUrl(fileName);
+
+                    imageUrl = urlData.publicUrl;
+                }
+
+                const payload = {
+                    title: document.getElementById('recipeTitle').value,
+                    category: finalCategory,
+                    ingredients: document.getElementById('recipeIngredients').value,
+                    instructions: document.getElementById('recipeInstructions').value,
+                    user_id: currentUser.id
+                };
+
+                if (imageUrl) payload.image_url = imageUrl;
+
+                if (editingId) {
+                    // Actualizar receta
+                    const { error } = await _supabase
+                        .from('recipes')
+                        .update(payload)
+                        .eq('id', editingId);
+
+                    if (error) throw error;
+                } else {
+                    // Crear receta nueva
+                    const { error } = await _supabase
+                        .from('recipes')
+                        .insert([payload]);
+
+                    if (error) throw error;
+                }
+
+                await fetchRecipes();
+                closeModal('formModal');
+                document.getElementById('recipeForm').reset();
+            } catch (error) {
+                alert('Error al guardar la receta: ' + error.message);
+            } finally {
+                btnSubmit.disabled = false;
+                btnSubmit.textContent = 'Guardar Receta';
+            }
+        }
+
+        async function deleteRecipe(id) {
+            if (!currentUser) {
+                alert('Debes iniciar sesión.');
+                return;
+            }
+
+            if (confirm('¿Estás seguro de que deseas eliminar esta receta?')) {
+                try {
+                    const { error } = await _supabase
+                        .from('recipes')
+                        .delete()
+                        .eq('id', id);
+
+                    if (error) throw error;
+
+                    closeModal('viewModal');
+                    await fetchRecipes();
+                } catch (error) {
+                    alert('Error al eliminar: ' + error.message);
+                }
+            }
+        }
+
+        // ==========================================
+        // RENDERIZADO Y UI DE RECETAS
+        // ==========================================
         function getCategories() {
-            const categories = new Set(recipes.map(r => r.category));
+            const categories = new Set(recipes.map(r => r.category || 'Otros'));
             return ['Todas', ...Array.from(categories)];
         }
 
@@ -197,15 +457,20 @@
 
             items.forEach(recipe => {
                 const card = document.createElement('div');
-                card.className = "bg-white rounded-2xl p-5 shadow-sm hover:shadow-md transition cursor-pointer border border-orange-100 flex flex-col justify-between group";
+                card.className = "bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition cursor-pointer border border-orange-100 flex flex-col justify-between group";
                 card.onclick = () => openViewModal(recipe.id);
                 
+                const hasImage = recipe.image_url ? `<img src="${recipe.image_url}" alt="${escapeHtml(recipe.title)}" class="w-full h-36 object-cover">` : '';
+
                 card.innerHTML = `
                     <div>
-                        <span class="inline-block bg-orange-100 text-orange-700 text-xs font-semibold px-2.5 py-0.5 rounded-full mb-2">${escapeHtml(recipe.category)}</span>
-                        <h3 class="font-bold text-slate-800 text-lg group-hover:text-orange-600 transition">${escapeHtml(recipe.title)}</h3>
+                        ${hasImage}
+                        <div class="p-5">
+                            <span class="inline-block bg-orange-100 text-orange-700 text-xs font-semibold px-2.5 py-0.5 rounded-full mb-2">${escapeHtml(recipe.category || 'Otros')}</span>
+                            <h3 class="font-bold text-slate-800 text-lg group-hover:text-orange-600 transition">${escapeHtml(recipe.title)}</h3>
+                        </div>
                     </div>
-                    <div class="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center text-xs text-slate-400">
+                    <div class="px-5 pb-4 pt-0 border-t border-slate-100 flex justify-between items-center text-xs text-slate-400">
                         <span>Haz click para ver</span>
                         <i data-lucide="chevron-right" class="w-4 h-4 text-orange-500"></i>
                     </div>
@@ -218,8 +483,8 @@
         function filterRecipes() {
             const query = document.getElementById('searchInput').value.toLowerCase();
             const filtered = recipes.filter(r => {
-                const matchesQuery = r.title.toLowerCase().includes(query) || 
-                                     r.ingredients.toLowerCase().includes(query);
+                const matchesQuery = (r.title && r.title.toLowerCase().includes(query)) || 
+                                     (r.ingredients && r.ingredients.toLowerCase().includes(query));
                 const matchesCategory = selectedCategory === 'Todas' || r.category === selectedCategory;
                 return matchesQuery && matchesCategory;
             });
@@ -243,27 +508,48 @@
             if (!recipe) return;
 
             document.getElementById('modalTitle').textContent = recipe.title;
-            document.getElementById('modalCategory').textContent = recipe.category;
+            document.getElementById('modalCategory').textContent = recipe.category || 'Otros';
             document.getElementById('modalIngredients').textContent = recipe.ingredients;
             document.getElementById('modalInstructions').textContent = recipe.instructions;
 
-            // Configurar botones de acción
-            document.getElementById('btnEdit').onclick = () => openEditFormModal(recipe.id);
-            document.getElementById('btnDelete').onclick = () => deleteRecipe(recipe.id);
+            // Mostrar u ocultar la imagen según exista o no
+            const imgContainer = document.getElementById('modalImageContainer');
+            const imgEl = document.getElementById('modalImage');
+            if (recipe.image_url) {
+                imgEl.src = recipe.image_url;
+                imgContainer.classList.remove('hidden');
+            } else {
+                imgContainer.classList.add('hidden');
+            }
 
-            document.getElementById('viewModal').classList.remove('hidden');
-            document.getElementById('viewModal').classList.add('flex');
+            // --- CAMBIO CLAVE ---
+            // Solo se muestran las acciones si hay un usuario logueado Y es el creador de la receta
+            const isOwner = currentUser && currentUser.id === recipe.user_id;
+            document.getElementById('modalActions').style.display = isOwner ? 'flex' : 'none';
+
+            if (isOwner) {
+                document.getElementById('btnEdit').onclick = () => openEditFormModal(recipe.id);
+                document.getElementById('btnDelete').onclick = () => deleteRecipe(recipe.id);
+            }
+
+            openModal('viewModal');
             lucide.createIcons();
         }
 
         function openFormModal() {
+            // Si no está logueado, se abre el login en vez del formulario
+            if (!currentUser) {
+                alert('Debes iniciar sesión para publicar una receta.');
+                openModal('authModal');
+                return;
+            }
+
             document.getElementById('editingId').value = '';
             document.getElementById('formModalTitle').textContent = 'Nueva Receta';
             document.getElementById('recipeForm').reset();
             toggleCustomCategoryInput();
 
-            document.getElementById('formModal').classList.remove('hidden');
-            document.getElementById('formModal').classList.add('flex');
+            openModal('formModal');
         }
 
         function openEditFormModal(id) {
@@ -280,7 +566,6 @@
             const select = document.getElementById('recipeCategorySelect');
             const customInput = document.getElementById('recipeCustomCategory');
 
-            // Verificar si la categoría está en el select predefinido
             const options = Array.from(select.options).map(o => o.value);
             if (options.includes(recipe.category)) {
                 select.value = recipe.category;
@@ -293,8 +578,12 @@
                 customInput.required = true;
             }
 
-            document.getElementById('formModal').classList.remove('hidden');
-            document.getElementById('formModal').classList.add('flex');
+            openModal('formModal');
+        }
+
+        function openModal(modalId) {
+            document.getElementById(modalId).classList.remove('hidden');
+            document.getElementById(modalId).classList.add('flex');
         }
 
         function closeModal(modalId) {
@@ -302,60 +591,8 @@
             document.getElementById(modalId).classList.remove('flex');
         }
 
-        function saveRecipe(event) {
-            event.preventDefault();
-            const editingId = document.getElementById('editingId').value;
-            const select = document.getElementById('recipeCategorySelect');
-            const customInput = document.getElementById('recipeCustomCategory');
-            
-            const finalCategory = select.value === 'custom' ? customInput.value.trim() : select.value;
-
-            if (editingId) {
-                // Editar receta existente
-                const index = recipes.findIndex(r => r.id === Number(editingId));
-                if (index !== -1) {
-                    recipes[index] = {
-                        ...recipes[index],
-                        title: document.getElementById('recipeTitle').value,
-                        category: finalCategory,
-                        ingredients: document.getElementById('recipeIngredients').value,
-                        instructions: document.getElementById('recipeInstructions').value
-                    };
-                }
-            } else {
-                // Crear nueva receta
-                const newRecipe = {
-                    id: Date.now(),
-                    title: document.getElementById('recipeTitle').value,
-                    category: finalCategory,
-                    ingredients: document.getElementById('recipeIngredients').value,
-                    instructions: document.getElementById('recipeInstructions').value
-                };
-                recipes.unshift(newRecipe);
-            }
-
-            localStorage.setItem('my_recipes', JSON.stringify(recipes));
-            
-            updateCategoryFilters();
-            filterRecipes();
-            
-            document.getElementById('recipeForm').reset();
-            toggleCustomCategoryInput();
-            closeModal('formModal');
-        }
-
-        function deleteRecipe(id) {
-            if (confirm('¿Estás seguro de que deseas eliminar esta receta?')) {
-                recipes = recipes.filter(r => r.id !== id);
-                localStorage.setItem('my_recipes', JSON.stringify(recipes));
-                
-                closeModal('viewModal');
-                updateCategoryFilters();
-                filterRecipes();
-            }
-        }
-
         function escapeHtml(str) {
+            if (!str) return '';
             return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
         }
     </script>
