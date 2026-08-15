@@ -286,8 +286,6 @@
             document.getElementById('recipeGrid').classList.add('hidden');
 
             try {
-                // Al estar la política RLS en (true), esto traerá todas las recetas
-                // independientemente de si currentUser es null o no
                 const { data, error } = await _supabase
                     .from('recipes')
                     .select('*')
@@ -295,8 +293,9 @@
 
                 if (error) throw error;
                 recipes = data || [];
-                
+
                 updateCategoryFilters();
+                populateCategorySelect();
                 filterRecipes();
             } catch (error) {
                 console.error('Error al cargar recetas:', error.message);
@@ -594,6 +593,31 @@
         function escapeHtml(str) {
             if (!str) return '';
             return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+
+        function populateCategorySelect() {
+            const select = document.getElementById('recipeCategorySelect');
+            const categories = getCategories().filter(c => c !== 'Todas'); // Excluimos el filtro global
+
+            // Guardar la opción "custom"
+            const customOption = select.querySelector('option[value="custom"]');
+
+            // Limpiar opciones anteriores manteniendo las por defecto si lo deseas o reconstruyendo
+            select.innerHTML = '';
+
+            // Categorías predeterminadas + las dinámicas provenientes de recetas
+            const baseCategories = ['Entradas', 'Platos Principales', 'Postres', 'Bebidas', 'Salsas'];
+            const allCategories = Array.from(new Set([...baseCategories, ...categories]));
+
+            allCategories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat;
+                option.textContent = cat;
+                select.appendChild(option);
+            });
+
+            // Volver a añadir la opción personalizada al final
+            select.appendChild(customOption);
         }
     </script>
 </body>
