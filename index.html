@@ -101,7 +101,7 @@
                 </div>
             </div>
 
-            <!-- Acciones (Editar y Eliminar) -->
+            <!-- Acciones (Editar y Eliminar Receta) -->
             <div id="modalActions" class="flex justify-end gap-2 pt-4 border-t border-slate-100">
                 <button id="btnEdit" class="bg-amber-100 hover:bg-amber-200 text-amber-800 px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
                     <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Editar
@@ -129,10 +129,21 @@
                     <input type="text" id="recipeTitle" required class="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none">
                 </div>
                 
-                <!-- Selector de Categoría -->
+                <!-- Selector y Gestión de Categoría -->
                 <div>
-                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Categoría</label>
-                    <select id="recipeCategorySelect" onchange="toggleCustomCategoryInput()" required class="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none bg-white">
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="block text-xs font-bold text-slate-600 uppercase">Categoría</label>
+                        <!-- Acciones sobre la categoría seleccionada (Editar/Eliminar solo si es del usuario) -->
+                        <div id="categoryActions" class="hidden gap-2 text-xs">
+                            <button type="button" onclick="editSelectedCategory()" class="text-amber-600 hover:underline font-medium flex items-center gap-0.5">
+                                <i data-lucide="pencil" class="w-3 h-3"></i> Renombrar
+                            </button>
+                            <button type="button" onclick="deleteSelectedCategory()" class="text-red-600 hover:underline font-medium flex items-center gap-0.5">
+                                <i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar
+                            </button>
+                        </div>
+                    </div>
+                    <select id="recipeCategorySelect" onchange="handleCategorySelectChange()" required class="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none bg-white">
                         <!-- Opciones dinámicas cargadas desde Supabase -->
                     </select>
                     <input type="text" id="recipeCustomCategory" placeholder="Escribe la nueva categoría" class="hidden mt-2 w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none">
@@ -200,7 +211,7 @@
 
         // Variables de Estado
         let recipes = [];
-        let categories = []; // [{ id, name }]
+        let categories = []; // [{ id, name, user_id }]
         let selectedCategory = 'Todas';
         let currentUser = null;
         let isSignUpMode = false;
@@ -224,6 +235,7 @@
             _supabase.auth.onAuthStateChange((event, session) => {
                 currentUser = session?.user || null;
                 updateAuthUI();
+                fetchCategories();
                 fetchRecipes();
             });
         }
@@ -275,19 +287,20 @@
         }
 
         // ==========================================
-        // GESTIÓN DE CATEGORÍAS
+        // GESTIÓN Y CRUD DE CATEGORÍAS
         // ==========================================
         async function fetchCategories() {
             try {
                 const { data, error } = await _supabase
                     .from('categories')
-                    .select('id, name')
+                    .select('id, name, user_id')
                     .order('name', { ascending: true });
 
                 if (error) throw error;
                 categories = data || [];
 
                 populateCategorySelect();
+                updateCategoryFilters();
             } catch (error) {
                 console.error('Error al cargar categorías:', error.message);
             }
@@ -297,7 +310,6 @@
             const container = document.getElementById('categoryFilterContainer');
             container.innerHTML = '';
 
-            // Obtener únicamente los nombres de categorías presentes en las recetas descargadas
             const activeCategoryNames = Array.from(
                 new Set(
                     recipes
@@ -334,7 +346,6 @@
             const select = document.getElementById('recipeCategorySelect');
             select.innerHTML = '';
 
-            // Cargar todas las categorías en el formulario
             categories.forEach(cat => {
                 const option = document.createElement('option');
                 option.value = cat.id;
@@ -342,18 +353,47 @@
                 select.appendChild(option);
             });
 
-            // Opción personalizada al final
             const customOption = document.createElement('option');
             customOption.value = 'custom';
             customOption.textContent = '+ Agregar nueva categoría...';
             select.appendChild(customOption);
+
+            handleCategorySelectChange();
+        }
+
+        function handleCategorySelectChange() {
+            const select = document.getElementById('recipeCategorySelect');
+            const customInput = document.getElementById('recipeCustomCategory');
+            const actionsDiv = document.getElementById('categoryActions');
+
+            if (select.value === 'custom') {
+                customInput.classList.remove('hidden');
+                customInput.required = true;
+                actionsDiv.classList.add('hidden');
+                actionsDiv.classList.remove('flex');
+            } else {
+                customInput.classList.add('hidden');
+                customInput.required = false;
+
+                // Verificar si la categoría elegida le pertenece al usuario actual
+                const catObj = categories.find(c => c.id === select.value);
+                const isOwner = currentUser && catObj && catObj.user_id === currentUser.id;
+
+                if (isOwner) {
+                    actionsDiv.classList.remove('hidden');
+                    actionsDiv.classList.add('flex');
+                } else {
+                    actionsDiv.classList.add('hidden');
+                    actionsDiv.classList.remove('flex');
+                }
+            }
         }
 
         async function createCategory(name) {
             try {
                 const { data, error } = await _supabase
                     .from('categories')
-                    .insert([{ name }])
+                    .insert([{ name, user_id: currentUser.id }])
                     .select()
                     .single();
 
@@ -362,8 +402,55 @@
                 return data.id;
             } catch (error) {
                 console.error('Error al crear categoría:', error.message);
-                alert('No se pudo crear la categoría.');
+                alert('No se pudo crear la categoría: ' + error.message);
                 return null;
+            }
+        }
+
+        async function editSelectedCategory() {
+            const select = document.getElementById('recipeCategorySelect');
+            const catObj = categories.find(c => c.id === select.value);
+            if (!catObj) return;
+
+            const newName = prompt('Editar nombre de la categoría:', catObj.name);
+            if (!newName || newName.trim() === '' || newName === catObj.name) return;
+
+            try {
+                const { error } = await _supabase
+                    .from('categories')
+                    .update({ name: newName.trim() })
+                    .eq('id', catObj.id);
+
+                if (error) throw error;
+
+                await fetchCategories();
+                await fetchRecipes();
+                select.value = catObj.id;
+                handleCategorySelectChange();
+            } catch (error) {
+                alert('Error al renombrar la categoría: ' + error.message);
+            }
+        }
+
+        async function deleteSelectedCategory() {
+            const select = document.getElementById('recipeCategorySelect');
+            const catObj = categories.find(c => c.id === select.value);
+            if (!catObj) return;
+
+            if (confirm(`¿Estás seguro de eliminar la categoría "${catObj.name}"? Las recetas asociadas quedarán sin categoría.`)) {
+                try {
+                    const { error } = await _supabase
+                        .from('categories')
+                        .delete()
+                        .eq('id', catObj.id);
+
+                    if (error) throw error;
+
+                    await fetchCategories();
+                    await fetchRecipes();
+                } catch (error) {
+                    alert('Error al eliminar categoría: ' + error.message);
+                }
             }
         }
 
@@ -567,18 +654,6 @@
             renderRecipes(filtered);
         }
 
-        function toggleCustomCategoryInput() {
-            const select = document.getElementById('recipeCategorySelect');
-            const customInput = document.getElementById('recipeCustomCategory');
-            if (select.value === 'custom') {
-                customInput.classList.remove('hidden');
-                customInput.required = true;
-            } else {
-                customInput.classList.add('hidden');
-                customInput.required = false;
-            }
-        }
-
         function openViewModal(id) {
             const recipe = recipes.find(r => r.id === id);
             if (!recipe) return;
@@ -621,7 +696,7 @@
             document.getElementById('editingId').value = '';
             document.getElementById('formModalTitle').textContent = 'Nueva Receta';
             document.getElementById('recipeForm').reset();
-            toggleCustomCategoryInput();
+            handleCategorySelectChange();
 
             openModal('formModal');
         }
@@ -638,16 +713,14 @@
             document.getElementById('recipeInstructions').value = recipe.instructions;
 
             const select = document.getElementById('recipeCategorySelect');
-            const customInput = document.getElementById('recipeCustomCategory');
 
             if (recipe.category_id) {
                 select.value = recipe.category_id;
-                customInput.classList.add('hidden');
-                customInput.required = false;
             } else {
                 select.value = select.options[0]?.value || '';
             }
 
+            handleCategorySelectChange();
             openModal('formModal');
         }
 
