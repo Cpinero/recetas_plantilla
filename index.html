@@ -133,12 +133,7 @@
                 <div>
                     <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Categoría</label>
                     <select id="recipeCategorySelect" onchange="toggleCustomCategoryInput()" required class="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none bg-white">
-                        <option value="Entradas">Entradas</option>
-                        <option value="Platos Principales">Platos Principales</option>
-                        <option value="Postres">Postres</option>
-                        <option value="Bebidas">Bebidas</option>
-                        <option value="Salsas">Salsas</option>
-                        <option value="custom">+ Agregar nueva categoría...</option>
+                        <!-- Opciones dinámicas cargadas desde Supabase -->
                     </select>
                     <input type="text" id="recipeCustomCategory" placeholder="Escribe la nueva categoría" class="hidden mt-2 w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none">
                 </div>
@@ -197,7 +192,6 @@
     <script>
         // ==========================================
         // CONFIGURACIÓN DE SUPABASE
-        // Reemplaza los siguientes valores con tus credenciales
         // ==========================================
         const SUPABASE_URL = 'https://dnbdtqyqtvjoqjjipvhv.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_C5cF9IarEaMRNmb0KZEq4Q_7zYas3Ll';
@@ -206,6 +200,7 @@
 
         // Variables de Estado
         let recipes = [];
+        let categories = []; // [{ id, name }]
         let selectedCategory = 'Todas';
         let currentUser = null;
         let isSignUpMode = false;
@@ -214,6 +209,7 @@
         document.addEventListener('DOMContentLoaded', async () => {
             lucide.createIcons();
             await checkAuthStatus();
+            await fetchCategories();
             await fetchRecipes();
         });
 
@@ -279,6 +275,99 @@
         }
 
         // ==========================================
+        // GESTIÓN DE CATEGORÍAS
+        // ==========================================
+        async function fetchCategories() {
+            try {
+                const { data, error } = await _supabase
+                    .from('categories')
+                    .select('id, name')
+                    .order('name', { ascending: true });
+
+                if (error) throw error;
+                categories = data || [];
+
+                populateCategorySelect();
+            } catch (error) {
+                console.error('Error al cargar categorías:', error.message);
+            }
+        }
+
+        function updateCategoryFilters() {
+            const container = document.getElementById('categoryFilterContainer');
+            container.innerHTML = '';
+
+            // Obtener únicamente los nombres de categorías presentes en las recetas descargadas
+            const activeCategoryNames = Array.from(
+                new Set(
+                    recipes
+                        .map(r => r.categories ? r.categories.name : null)
+                        .filter(Boolean)
+                )
+            ).sort();
+
+            const availableFilters = ['Todas', ...activeCategoryNames];
+
+            if (!availableFilters.includes(selectedCategory)) {
+                selectedCategory = 'Todas';
+            }
+
+            availableFilters.forEach(catName => {
+                const btn = document.createElement('button');
+                const isActive = selectedCategory === catName;
+                btn.className = `px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${
+                    isActive 
+                    ? 'bg-orange-600 text-white shadow-sm' 
+                    : 'bg-white text-slate-600 border border-orange-100 hover:bg-orange-100'
+                }`;
+                btn.textContent = catName;
+                btn.onclick = () => {
+                    selectedCategory = catName;
+                    updateCategoryFilters();
+                    filterRecipes();
+                };
+                container.appendChild(btn);
+            });
+        }
+
+        function populateCategorySelect() {
+            const select = document.getElementById('recipeCategorySelect');
+            select.innerHTML = '';
+
+            // Cargar todas las categorías en el formulario
+            categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat.id;
+                option.textContent = cat.name;
+                select.appendChild(option);
+            });
+
+            // Opción personalizada al final
+            const customOption = document.createElement('option');
+            customOption.value = 'custom';
+            customOption.textContent = '+ Agregar nueva categoría...';
+            select.appendChild(customOption);
+        }
+
+        async function createCategory(name) {
+            try {
+                const { data, error } = await _supabase
+                    .from('categories')
+                    .insert([{ name }])
+                    .select()
+                    .single();
+
+                if (error) throw error;
+                await fetchCategories();
+                return data.id;
+            } catch (error) {
+                console.error('Error al crear categoría:', error.message);
+                alert('No se pudo crear la categoría.');
+                return null;
+            }
+        }
+
+        // ==========================================
         // OPERACIONES CRUD RECETAS
         // ==========================================
         async function fetchRecipes() {
@@ -288,14 +377,13 @@
             try {
                 const { data, error } = await _supabase
                     .from('recipes')
-                    .select('*')
+                    .select('*, categories(id, name)')
                     .order('created_at', { ascending: false });
 
                 if (error) throw error;
                 recipes = data || [];
 
                 updateCategoryFilters();
-                populateCategorySelect();
                 filterRecipes();
             } catch (error) {
                 console.error('Error al cargar recetas:', error.message);
@@ -323,11 +411,33 @@
             const customInput = document.getElementById('recipeCustomCategory');
             const imageInput = document.getElementById('recipeImage');
             
-            const finalCategory = select.value === 'custom' ? customInput.value.trim() : select.value;
+            let categoryId = select.value;
+
+            if (categoryId === 'custom') {
+                const newCatName = customInput.value.trim();
+                if (!newCatName) {
+                    alert('Ingresa el nombre de la nueva categoría.');
+                    btnSubmit.disabled = false;
+                    btnSubmit.textContent = 'Guardar Receta';
+                    return;
+                }
+                
+                const existing = categories.find(c => c.name.toLowerCase() === newCatName.toLowerCase());
+                if (existing) {
+                    categoryId = existing.id;
+                } else {
+                    categoryId = await createCategory(newCatName);
+                    if (!categoryId) {
+                        btnSubmit.disabled = false;
+                        btnSubmit.textContent = 'Guardar Receta';
+                        return;
+                    }
+                }
+            }
+
             let imageUrl = null;
 
             try {
-                // Subir Imagen si fue seleccionada
                 if (imageInput.files.length > 0) {
                     const file = imageInput.files[0];
                     const fileExt = file.name.split('.').pop();
@@ -348,7 +458,7 @@
 
                 const payload = {
                     title: document.getElementById('recipeTitle').value,
-                    category: finalCategory,
+                    category_id: categoryId,
                     ingredients: document.getElementById('recipeIngredients').value,
                     instructions: document.getElementById('recipeInstructions').value,
                     user_id: currentUser.id
@@ -357,7 +467,6 @@
                 if (imageUrl) payload.image_url = imageUrl;
 
                 if (editingId) {
-                    // Actualizar receta
                     const { error } = await _supabase
                         .from('recipes')
                         .update(payload)
@@ -365,7 +474,6 @@
 
                     if (error) throw error;
                 } else {
-                    // Crear receta nueva
                     const { error } = await _supabase
                         .from('recipes')
                         .insert([payload]);
@@ -410,39 +518,6 @@
         // ==========================================
         // RENDERIZADO Y UI DE RECETAS
         // ==========================================
-        function getCategories() {
-            const categories = new Set(recipes.map(r => r.category || 'Otros'));
-            return ['Todas', ...Array.from(categories)];
-        }
-
-        function updateCategoryFilters() {
-            const container = document.getElementById('categoryFilterContainer');
-            const categories = getCategories();
-            
-            if (!categories.includes(selectedCategory)) {
-                selectedCategory = 'Todas';
-            }
-
-            container.innerHTML = '';
-
-            categories.forEach(cat => {
-                const btn = document.createElement('button');
-                const isActive = selectedCategory === cat;
-                btn.className = `px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${
-                    isActive 
-                    ? 'bg-orange-600 text-white shadow-sm' 
-                    : 'bg-white text-slate-600 border border-orange-100 hover:bg-orange-100'
-                }`;
-                btn.textContent = cat;
-                btn.onclick = () => {
-                    selectedCategory = cat;
-                    updateCategoryFilters();
-                    filterRecipes();
-                };
-                container.appendChild(btn);
-            });
-        }
-
         function renderRecipes(items) {
             const grid = document.getElementById('recipeGrid');
             const emptyState = document.getElementById('emptyState');
@@ -460,12 +535,13 @@
                 card.onclick = () => openViewModal(recipe.id);
                 
                 const hasImage = recipe.image_url ? `<img src="${recipe.image_url}" alt="${escapeHtml(recipe.title)}" class="w-full h-36 object-cover">` : '';
+                const categoryName = recipe.categories ? recipe.categories.name : 'Sin categoría';
 
                 card.innerHTML = `
                     <div>
                         ${hasImage}
                         <div class="p-5">
-                            <span class="inline-block bg-orange-100 text-orange-700 text-xs font-semibold px-2.5 py-0.5 rounded-full mb-2">${escapeHtml(recipe.category || 'Otros')}</span>
+                            <span class="inline-block bg-orange-100 text-orange-700 text-xs font-semibold px-2.5 py-0.5 rounded-full mb-2">${escapeHtml(categoryName)}</span>
                             <h3 class="font-bold text-slate-800 text-lg group-hover:text-orange-600 transition">${escapeHtml(recipe.title)}</h3>
                         </div>
                     </div>
@@ -482,9 +558,10 @@
         function filterRecipes() {
             const query = document.getElementById('searchInput').value.toLowerCase();
             const filtered = recipes.filter(r => {
+                const catName = r.categories ? r.categories.name : 'Sin categoría';
                 const matchesQuery = (r.title && r.title.toLowerCase().includes(query)) || 
                                      (r.ingredients && r.ingredients.toLowerCase().includes(query));
-                const matchesCategory = selectedCategory === 'Todas' || r.category === selectedCategory;
+                const matchesCategory = selectedCategory === 'Todas' || catName === selectedCategory;
                 return matchesQuery && matchesCategory;
             });
             renderRecipes(filtered);
@@ -506,12 +583,13 @@
             const recipe = recipes.find(r => r.id === id);
             if (!recipe) return;
 
+            const categoryName = recipe.categories ? recipe.categories.name : 'Sin categoría';
+
             document.getElementById('modalTitle').textContent = recipe.title;
-            document.getElementById('modalCategory').textContent = recipe.category || 'Otros';
+            document.getElementById('modalCategory').textContent = categoryName;
             document.getElementById('modalIngredients').textContent = recipe.ingredients;
             document.getElementById('modalInstructions').textContent = recipe.instructions;
 
-            // Mostrar u ocultar la imagen según exista o no
             const imgContainer = document.getElementById('modalImageContainer');
             const imgEl = document.getElementById('modalImage');
             if (recipe.image_url) {
@@ -521,8 +599,6 @@
                 imgContainer.classList.add('hidden');
             }
 
-            // --- CAMBIO CLAVE ---
-            // Solo se muestran las acciones si hay un usuario logueado Y es el creador de la receta
             const isOwner = currentUser && currentUser.id === recipe.user_id;
             document.getElementById('modalActions').style.display = isOwner ? 'flex' : 'none';
 
@@ -536,7 +612,6 @@
         }
 
         function openFormModal() {
-            // Si no está logueado, se abre el login en vez del formulario
             if (!currentUser) {
                 alert('Debes iniciar sesión para publicar una receta.');
                 openModal('authModal');
@@ -565,16 +640,12 @@
             const select = document.getElementById('recipeCategorySelect');
             const customInput = document.getElementById('recipeCustomCategory');
 
-            const options = Array.from(select.options).map(o => o.value);
-            if (options.includes(recipe.category)) {
-                select.value = recipe.category;
+            if (recipe.category_id) {
+                select.value = recipe.category_id;
                 customInput.classList.add('hidden');
                 customInput.required = false;
             } else {
-                select.value = 'custom';
-                customInput.value = recipe.category;
-                customInput.classList.remove('hidden');
-                customInput.required = true;
+                select.value = select.options[0]?.value || '';
             }
 
             openModal('formModal');
@@ -593,31 +664,6 @@
         function escapeHtml(str) {
             if (!str) return '';
             return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-        }
-
-        function populateCategorySelect() {
-            const select = document.getElementById('recipeCategorySelect');
-            const categories = getCategories().filter(c => c !== 'Todas'); // Excluimos el filtro global
-
-            // Guardar la opción "custom"
-            const customOption = select.querySelector('option[value="custom"]');
-
-            // Limpiar opciones anteriores manteniendo las por defecto si lo deseas o reconstruyendo
-            select.innerHTML = '';
-
-            // Categorías predeterminadas + las dinámicas provenientes de recetas
-            const baseCategories = ['Entradas', 'Platos Principales', 'Postres', 'Bebidas', 'Salsas'];
-            const allCategories = Array.from(new Set([...baseCategories, ...categories]));
-
-            allCategories.forEach(cat => {
-                const option = document.createElement('option');
-                option.value = cat;
-                option.textContent = cat;
-                select.appendChild(option);
-            });
-
-            // Volver a añadir la opción personalizada al final
-            select.appendChild(customOption);
         }
     </script>
 </body>
